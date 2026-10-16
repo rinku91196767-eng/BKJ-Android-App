@@ -15,20 +15,20 @@ import android.webkit.WebViewClient;
 import android.widget.Toast;
 
 public class MainActivity extends Activity {
+    private static final String LOCAL_URL = "file:///android_asset/site/index.html";
     private static final String LIVE_URL = "https://brotherskingjunction.netlify.app/";
     private static final String LIVE_HOST = "brotherskingjunction.netlify.app";
-    private static final String FALLBACK_URL = "file:///android_asset/offline.html";
     private WebView webView;
-    private boolean fallbackShown = false;
+    private boolean liveFallbackShown = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        getWindow().setStatusBarColor(Color.rgb(8, 8, 8));
-        getWindow().setNavigationBarColor(Color.rgb(8, 8, 8));
+        getWindow().setStatusBarColor(Color.rgb(255, 107, 53));
+        getWindow().setNavigationBarColor(Color.WHITE);
 
         webView = new WebView(this);
-        webView.setBackgroundColor(Color.rgb(8, 8, 8));
+        webView.setBackgroundColor(Color.rgb(255, 248, 245));
         setContentView(webView);
 
         WebSettings s = webView.getSettings();
@@ -41,6 +41,9 @@ public class MainActivity extends Activity {
         s.setUseWideViewPort(true);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
+        s.setSupportZoom(false);
+        s.setBuiltInZoomControls(false);
+        s.setDisplayZoomControls(false);
 
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
@@ -59,11 +62,12 @@ public class MainActivity extends Activity {
             @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 super.onReceivedError(view, request, error);
-                if (!fallbackShown && request.isForMainFrame()) {
+                if (!liveFallbackShown && request.isForMainFrame()) {
                     Uri failed = request.getUrl();
-                    if (failed != null && LIVE_HOST.equalsIgnoreCase(failed.getHost())) {
-                        fallbackShown = true;
-                        view.loadUrl(FALLBACK_URL);
+                    if (failed != null && "file".equalsIgnoreCase(failed.getScheme())) {
+                        liveFallbackShown = true;
+                        Toast.makeText(MainActivity.this, "Opening live version…", Toast.LENGTH_SHORT).show();
+                        view.loadUrl(LIVE_URL);
                     }
                 }
             }
@@ -72,7 +76,7 @@ public class MainActivity extends Activity {
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState);
         } else {
-            webView.loadUrl(LIVE_URL);
+            webView.loadUrl(LOCAL_URL);
         }
     }
 
@@ -80,14 +84,24 @@ public class MainActivity extends Activity {
         Uri uri = Uri.parse(url);
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
         String host = uri.getHost();
-        if ("file".equals(scheme) || (("http".equals(scheme) || "https".equals(scheme)) && host != null && (host.equalsIgnoreCase(LIVE_HOST) || host.endsWith("." + LIVE_HOST)))) {
+
+        if ("file".equals(scheme)) {
             return false;
         }
+        if (("http".equals(scheme) || "https".equals(scheme)) && host != null
+                && (host.equalsIgnoreCase(LIVE_HOST) || host.endsWith("." + LIVE_HOST))) {
+            return false;
+        }
+
         try {
             Intent intent;
-            if ("tel".equals(scheme)) intent = new Intent(Intent.ACTION_DIAL, uri);
-            else if ("intent".equals(scheme)) intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
-            else intent = new Intent(Intent.ACTION_VIEW, uri);
+            if ("tel".equals(scheme)) {
+                intent = new Intent(Intent.ACTION_DIAL, uri);
+            } else if ("intent".equals(scheme)) {
+                intent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME);
+            } else {
+                intent = new Intent(Intent.ACTION_VIEW, uri);
+            }
             startActivity(intent);
         } catch (ActivityNotFoundException e) {
             Toast.makeText(this, "Required app is not installed.", Toast.LENGTH_SHORT).show();
@@ -99,8 +113,11 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) webView.goBack();
-        else super.onBackPressed();
+        if (webView != null && webView.canGoBack()) {
+            webView.goBack();
+        } else {
+            super.onBackPressed();
+        }
     }
 
     @Override
@@ -111,7 +128,13 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        if (webView != null) webView.destroy();
+        if (webView != null) {
+            webView.stopLoading();
+            webView.loadUrl("about:blank");
+            webView.clearHistory();
+            webView.removeAllViews();
+            webView.destroy();
+        }
         super.onDestroy();
     }
 }
