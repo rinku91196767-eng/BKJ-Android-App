@@ -24,6 +24,7 @@ public class MainActivity extends Activity {
     private WebView webView;
     private boolean fallbackShown = false;
     private String appStyleJs = "";
+    private String headerFixJs = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -32,6 +33,7 @@ public class MainActivity extends Activity {
         getWindow().setNavigationBarColor(Color.WHITE);
 
         appStyleJs = readAsset("app-style.js");
+        headerFixJs = readAsset("header-fix.js");
 
         webView = new WebView(this);
         webView.setBackgroundColor(Color.rgb(255, 248, 245));
@@ -67,8 +69,10 @@ public class MainActivity extends Activity {
             @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
-                if (url != null && url.startsWith("https://" + LIVE_HOST) && !appStyleJs.isEmpty()) {
-                    view.evaluateJavascript(appStyleJs, null);
+                if (url != null && url.startsWith("https://" + LIVE_HOST)) {
+                    injectUiFixes(view);
+                    view.postDelayed(() -> injectUiFixes(view), 700);
+                    view.postDelayed(() -> injectUiFixes(view), 1800);
                 }
             }
 
@@ -91,6 +95,12 @@ public class MainActivity extends Activity {
         } else {
             webView.loadUrl(LIVE_URL);
         }
+    }
+
+    private void injectUiFixes(WebView view) {
+        if (view == null) return;
+        if (!appStyleJs.isEmpty()) view.evaluateJavascript(appStyleJs, null);
+        if (!headerFixJs.isEmpty()) view.evaluateJavascript(headerFixJs, null);
     }
 
     private String readAsset(String name) {
