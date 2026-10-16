@@ -6,12 +6,15 @@ import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
+import android.view.View;
+import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.widget.FrameLayout;
 import android.widget.Toast;
 
 import java.io.BufferedReader;
@@ -21,7 +24,10 @@ public class MainActivity extends Activity {
     private static final String LIVE_URL = "https://brotherskingjunction.netlify.app/";
     private static final String LIVE_HOST = "brotherskingjunction.netlify.app";
     private static final String FALLBACK_URL = "file:///android_asset/offline.html";
+
     private WebView webView;
+    private FrameLayout root;
+    private View menuTouchOverlay;
     private boolean fallbackShown = false;
     private String appStyleJs = "";
     private String headerFixJs = "";
@@ -35,9 +41,24 @@ public class MainActivity extends Activity {
         appStyleJs = readAsset("app-style.js");
         headerFixJs = readAsset("header-fix.js");
 
+        root = new FrameLayout(this);
         webView = new WebView(this);
         webView.setBackgroundColor(Color.rgb(255, 248, 245));
-        setContentView(webView);
+        root.addView(webView, new FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT));
+
+        menuTouchOverlay = new View(this);
+        menuTouchOverlay.setBackgroundColor(Color.TRANSPARENT);
+        menuTouchOverlay.setClickable(true);
+        menuTouchOverlay.setFocusable(true);
+        menuTouchOverlay.setContentDescription("Open menu");
+        menuTouchOverlay.setElevation(1000f);
+        menuTouchOverlay.setVisibility(View.GONE);
+        menuTouchOverlay.setOnClickListener(v -> toggleMenuFromNative());
+        root.addView(menuTouchOverlay, new FrameLayout.LayoutParams(1, 1));
+
+        setContentView(root);
 
         WebSettings s = webView.getSettings();
         s.setJavaScriptEnabled(true);
@@ -71,8 +92,17 @@ public class MainActivity extends Activity {
                 super.onPageFinished(view, url);
                 if (url != null && url.startsWith("https://" + LIVE_HOST)) {
                     injectUiFixes(view);
-                    view.postDelayed(() -> injectUiFixes(view), 700);
-                    view.postDelayed(() -> injectUiFixes(view), 1800);
+                    positionNativeMenuOverlay();
+                    view.postDelayed(() -> {
+                        injectUiFixes(view);
+                        positionNativeMenuOverlay();
+                    }, 700);
+                    view.postDelayed(() -> {
+                        injectUiFixes(view);
+                        positionNativeMenuOverlay();
+                    }, 1800);
+                } else {
+                    menuTouchOverlay.setVisibility(View.GONE);
                 }
             }
 
@@ -83,6 +113,7 @@ public class MainActivity extends Activity {
                     Uri failed = request.getUrl();
                     if (failed != null && LIVE_HOST.equalsIgnoreCase(failed.getHost())) {
                         fallbackShown = true;
+                        menuTouchOverlay.setVisibility(View.GONE);
                         Toast.makeText(MainActivity.this, "Internet unavailable. Opening offline screen.", Toast.LENGTH_SHORT).show();
                         view.loadUrl(FALLBACK_URL);
                     }
@@ -101,6 +132,54 @@ public class MainActivity extends Activity {
         if (view == null) return;
         if (!appStyleJs.isEmpty()) view.evaluateJavascript(appStyleJs, null);
         if (!headerFixJs.isEmpty()) view.evaluateJavascript(headerFixJs, null);
+    }
+
+    private void positionNativeMenuOverlay() {
+        if (webView == null || menuTouchOverlay == null) return;
+        String js = "(function(){var e=document.getElementById('bkjMenuToggle');if(!e)return '';var r=e.getBoundingClientRect();return [r.left,r.top,r.width,r.height,(window.devicePixelRatio||1)].join(',');})()";
+        webView.evaluateJavascript(js, value -> {
+            try {
+                if (value == null) {
+                    menuTouchOverlay.setVisibility(View.GONE);
+                    return;
+                }
+                String clean = value.replace("\\\"", "").replace("\"", "").trim();
+                if (clean.isEmpty() || "null".equals(clean)) {
+                    menuTouchOverlay.setVisibility(View.GONE);
+                    return;
+                }
+                String[] p = clean.split(",");
+                if (p.length < 5) {
+                    menuTouchOverlay.setVisibility(View.GONE);
+                    return;
+                }
+                float dpr = Float.parseFloat(p[4]);
+                int rawLeft = Math.round(Float.parseFloat(p[0]) * dpr);
+                int rawTop = Math.round(Float.parseFloat(p[1]) * dpr);
+                int rawWidth = Math.round(Float.parseFloat(p[2]) * dpr);
+                int rawHeight = Math.round(Float.parseFloat(p[3]) * dpr);
+
+                float density = getResources().getDisplayMetrics().density;
+                int minSize = Math.round(48f * density);
+                int width = Math.max(rawWidth, minSize);
+                int height = Math.max(rawHeight, minSize);
+
+                FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(width, height);
+                lp.leftMargin = Math.max(0, rawLeft - (width - rawWidth) / 2);
+                lp.topMargin = Math.max(0, rawTop - (height - rawHeight) / 2);
+                menuTouchOverlay.setLayoutParams(lp);
+                menuTouchOverlay.bringToFront();
+                menuTouchOverlay.setVisibility(View.VISIBLE);
+            } catch (Exception e) {
+                menuTouchOverlay.setVisibility(View.GONE);
+            }
+        });
+    }
+
+    private void toggleMenuFromNative() {
+        if (webView == null) return;
+        String js = "(function(){var w=document.querySelector('.top .nav')||document.querySelector('.nav');var m=document.getElementById('bkjMainNav');var t=document.getElementById('bkjMenuToggle');if(!w||!m)return false;var open=!w.classList.contains('nav-open');w.classList.toggle('nav-open',open);if(t){t.setAttribute('aria-expanded',open?'true':'false');t.textContent=open?'×':'☰';}if(window.matchMedia('(max-width:1050px)').matches){m.style.setProperty('display',open?'grid':'none','important');if(open){m.style.setProperty('grid-template-columns','1fr 1fr','important');m.style.setProperty('width','100%','important');m.style.setProperty('order','4','important');m.style.setProperty('gap','6px','important');}}return open;})()";
+        webView.evaluateJavascript(js, null);
     }
 
     private String readAsset(String name) {
