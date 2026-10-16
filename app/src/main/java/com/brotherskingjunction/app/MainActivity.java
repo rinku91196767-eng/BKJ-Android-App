@@ -14,18 +14,24 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
 
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+
 public class MainActivity extends Activity {
-    private static final String LOCAL_URL = "file:///android_asset/site/index.html";
     private static final String LIVE_URL = "https://brotherskingjunction.netlify.app/";
     private static final String LIVE_HOST = "brotherskingjunction.netlify.app";
+    private static final String FALLBACK_URL = "file:///android_asset/offline.html";
     private WebView webView;
-    private boolean liveFallbackShown = false;
+    private boolean fallbackShown = false;
+    private String appStyleJs = "";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         getWindow().setStatusBarColor(Color.rgb(255, 107, 53));
         getWindow().setNavigationBarColor(Color.WHITE);
+
+        appStyleJs = readAsset("app-style.js");
 
         webView = new WebView(this);
         webView.setBackgroundColor(Color.rgb(255, 248, 245));
@@ -41,7 +47,6 @@ public class MainActivity extends Activity {
         s.setUseWideViewPort(true);
         s.setMediaPlaybackRequiresUserGesture(false);
         s.setCacheMode(WebSettings.LOAD_DEFAULT);
-        s.setSupportZoom(false);
         s.setBuiltInZoomControls(false);
         s.setDisplayZoomControls(false);
 
@@ -60,14 +65,22 @@ public class MainActivity extends Activity {
             }
 
             @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (url != null && url.startsWith("https://" + LIVE_HOST) && !appStyleJs.isEmpty()) {
+                    view.evaluateJavascript(appStyleJs, null);
+                }
+            }
+
+            @Override
             public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
                 super.onReceivedError(view, request, error);
-                if (!liveFallbackShown && request.isForMainFrame()) {
+                if (!fallbackShown && request.isForMainFrame()) {
                     Uri failed = request.getUrl();
-                    if (failed != null && "file".equalsIgnoreCase(failed.getScheme())) {
-                        liveFallbackShown = true;
-                        Toast.makeText(MainActivity.this, "Opening live version…", Toast.LENGTH_SHORT).show();
-                        view.loadUrl(LIVE_URL);
+                    if (failed != null && LIVE_HOST.equalsIgnoreCase(failed.getHost())) {
+                        fallbackShown = true;
+                        Toast.makeText(MainActivity.this, "Internet unavailable. Opening offline screen.", Toast.LENGTH_SHORT).show();
+                        view.loadUrl(FALLBACK_URL);
                     }
                 }
             }
@@ -76,8 +89,17 @@ public class MainActivity extends Activity {
         if (savedInstanceState != null) {
             webView.restoreState(savedInstanceState);
         } else {
-            webView.loadUrl(LOCAL_URL);
+            webView.loadUrl(LIVE_URL);
         }
+    }
+
+    private String readAsset(String name) {
+        StringBuilder out = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(getAssets().open(name), "UTF-8"))) {
+            String line;
+            while ((line = reader.readLine()) != null) out.append(line).append('\n');
+        } catch (Exception ignored) { }
+        return out.toString();
     }
 
     private boolean handleUrl(String url) {
@@ -85,9 +107,7 @@ public class MainActivity extends Activity {
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
         String host = uri.getHost();
 
-        if ("file".equals(scheme)) {
-            return false;
-        }
+        if ("file".equals(scheme)) return false;
         if (("http".equals(scheme) || "https".equals(scheme)) && host != null
                 && (host.equalsIgnoreCase(LIVE_HOST) || host.endsWith("." + LIVE_HOST))) {
             return false;
@@ -113,11 +133,8 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (webView != null && webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            super.onBackPressed();
-        }
+        if (webView != null && webView.canGoBack()) webView.goBack();
+        else super.onBackPressed();
     }
 
     @Override
